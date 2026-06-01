@@ -82,23 +82,23 @@ The DOS header is a 64-byte long structure that exists at the start of the PE fi
 
 typedef struct _IMAGE_DOS_HEADER {
     WORD   e_magic;                     // Must be 0x5A4D ("MZ"). This is how you confirm the file is a valid DOS/PE executable.
-    WORD   e_cblp;                      // MS-DOS relic. Number of bytes used on the last page of the DOS executable.
-    WORD   e_cp;                        // MS-DOS relic. Total number of 512-byte pages in the DOS executable.
-    WORD   e_crlc;                      // MS-DOS relic. Number of relocation entries in the DOS relocation table.
-    WORD   e_cparhdr;                   // MS-DOS relic. Size of the DOS header in 16-byte paragraphs. Used to find where DOS code starts.
-    WORD   e_minalloc;                  // MS-DOS relic. Minimum memory (in paragraphs) the DOS program needs to run.
-    WORD   e_maxalloc;                  // MS-DOS relic. Maximum memory (in paragraphs) the DOS program would like. 0xFFFF means "as much as possible".
-    WORD   e_ss;                        // MS-DOS relic. Initial value of the SS (stack segment) register when the DOS program starts.
-    WORD   e_sp;                        // MS-DOS relic. Initial value of the SP (stack pointer) register when the DOS program starts.
-    WORD   e_csum;                      // MS-DOS relic. Checksum of the DOS executable. Rarely validated, usually 0.
-    WORD   e_ip;                        // MS-DOS relic. Initial value of the IP (instruction pointer) register, i.e., where DOS begins executing code.
-    WORD   e_cs;                        // MS-DOS relic. Initial value of the CS (code segment) register when the DOS program starts.
-    WORD   e_lfarlc;                    // MS-DOS relic. File offset of the DOS relocation table.
-    WORD   e_ovno;                      // MS-DOS relic. Overlay number. Overlays were a DOS trick to swap chunks of code in/out of memory. Basically never used.
-    WORD   e_res[4];                    // Reserved. Padding, set to zero. Ignored by the loader.
-    WORD   e_oemid;                     // OEM-specific. Identifies which OEM vendor extended this header. Rarely used.
-    WORD   e_oeminfo;                   // OEM-specific. Extra info whose meaning depends on e_oemid. Rarely used.
-    WORD   e_res2[10];                  // Reserved. More padding, set to zero. Ignored by the loader.
+    WORD   e_cblp;                     
+    WORD   e_cp;                       
+    WORD   e_crlc;                      
+    WORD   e_cparhdr;                   
+    WORD   e_minalloc;                  
+    WORD   e_maxalloc;                  
+    WORD   e_ss;                        
+    WORD   e_sp;                        
+    WORD   e_csum;                     
+    WORD   e_ip;                        
+    WORD   e_cs;                        
+    WORD   e_lfarlc;                    
+    WORD   e_ovno;                     
+    WORD   e_res[4];                    
+    WORD   e_oemid;                     
+    WORD   e_oeminfo;                   
+    WORD   e_res2[10];                  
     LONG   e_lfanew;                    // THE important field. A file offset (in bytes) pointing to the NT Headers (IMAGE_NT_HEADERS).
                                         // The OS loader jumps straight here to find the real PE structure.
                                         // This is also the first thing any PE parser reads after validating e_magic.
@@ -114,4 +114,47 @@ typedef struct _IMAGE_DOS_HEADER {
 *PIMAGE_DOS_HEADER;
 ```
 
+I added comments only on the two important members that we need.
+- **e_magic**: first member of the DOS header, it's a WORD and occupies 2 bytes. It serves as a signature that validates the file as an MS-DOS executable. Its value is always `MZ` (0x5A4D).
+- **e_lfanew**: last member of the DOS header struct, located at offset `0x3C`, and it holds an offset to the start of the NT headers. This is important because it tells the PE loader where to find the actual PE structure.
+
+
+## Rich Header
+A chunk of data sitting between the DOS Stub and the NT Headers. It's not an official part of the PE format, so you can zero it out completely and the executable still runs fine.
+
+It's only present in executables built with Microsoft Visual Studio, and it stores metadata about the build tools used, things like the tool type, version, and how many times it was used during compilation.
+
+### Structure
+The data is XOR-encrypted. To read it, you XOR everything with the 32-bit checksum that follows the `Rich` signature at the end, which doubles as the XOR key.
+
+Once decrypted, the layout is:
+
+```plaintext
+[ DanS ][ padding ][ entry ][ entry ][ entry ]...[ Rich ][ XOR key ]
+```
+
+- `DanS` and `Rich` are just magic signatures that mark the start and end of the header
+- Each entry is a pair of DWORDs: one holding the tool type and build number, the other holding how many times that tool was used
+
+## Why should you care?
+You probably won't need to parse this yourself. What matters is knowing it exists and what it's used for forensically.
+
+The Rich Header is a fingerprint of the build environment. Malware analysts use it to attribute samples to threat actors, since two executables built on the same machine with the same toolset will have matching Rich Headers.
+
+This is exactly what happened with **Olympic Destroyer**, a malware used to disrupt the 2018 Winter Olympics. The authors copied the Rich Header from a known Lazarus Group sample into their own malware to fake attribution and throw analysts off.
+
+# NT Headers
+Before  we talk about NT headers, let's talk about Relative Virtual Address. 
+
+## Relative Virtual ADddress (RVA)
+RVA's the exact offset n memory where a specific section of the image begins once the program is lodded (Image base) 
+PE files rely heavily on the use of RVAs.
+
+Here's the formula for getting the RVA and Virtual Adddress:
+```plaintext
+RVA = Virtual Address - Image Base Address
+VA  = Image Base Address + RVA
+```
+
+## NT Headers (IMAGE_NT_HEADERS)
 
